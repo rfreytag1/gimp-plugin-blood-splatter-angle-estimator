@@ -1,6 +1,8 @@
 //
 // Created by rfreytag on 04.05.18.
 //
+
+#include <iostream>
 #include <vector>
 #include <algorithm>
 
@@ -68,31 +70,82 @@ namespace HSMW {
                                   });
 
                         // determine winner hulls for final analysis
-                        std::vector<cv::Point> winnerHullFromTop, winnerHullFromBottom;
+                        std::vector<cv::Point> winnerHullFromTop, winnerHullFromBottom, totalWinner;
                         winnerHullFromTop = OptimaFinders::findOptima(pointChainFromTopPoint, src);
                         winnerHullFromBottom = OptimaFinders::findOptima(pointChainFromBottomPoint, src);
 
-                        // winner onto image buffer to be displayed in GIMP
+                        // draw winner onto image buffer to be displayed in GIMP
                         if(!winnerHullFromTop.empty() && !winnerHullFromBottom.empty()) {
                             if(winnerHullFromTop.size() >= winnerHullFromBottom.size()) {
-                                cv::ellipse(dst, cv::fitEllipse(winnerHullFromTop), cv::Scalar(255, 255, 0));
-                                cv::drawContours(dst, std::vector<std::vector<cv::Point>>({winnerHullFromTop}), 0, cv::Scalar(255, 127, 0), 0);
+                                totalWinner = winnerHullFromTop;
                             } else {
-                                cv::ellipse(dst, cv::fitEllipse(winnerHullFromBottom), cv::Scalar(255, 255, 0));
-                                cv::drawContours(dst, std::vector<std::vector<cv::Point>>({winnerHullFromBottom}), 0, cv::Scalar(255, 127, 0), 0);
+                                totalWinner = winnerHullFromBottom;
                             }
                         } else {
                             if(!winnerHullFromTop.empty()) {
-                                cv::ellipse(dst, cv::fitEllipse(winnerHullFromTop), cv::Scalar(255, 255, 0));
-                                cv::drawContours(dst, std::vector<std::vector<cv::Point>>({winnerHullFromTop}), 0, cv::Scalar(255, 127, 0), 0);
+                                totalWinner = winnerHullFromTop;
                             }
                             if(!winnerHullFromBottom.empty()) {
-                                cv::ellipse(dst, cv::fitEllipse(winnerHullFromBottom), cv::Scalar(255, 255, 0));
-                                cv::drawContours(dst, std::vector<std::vector<cv::Point>>({winnerHullFromBottom}), 0, cv::Scalar(255, 127, 0), 0);
+                                totalWinner = winnerHullFromBottom;
                             }
                         }
 
-                        // TODO: final analysis
+                        if(totalWinner.empty()) {
+                            continue;
+                        }
+
+                        // determine longest ellipse axism which is our splatter angle
+                        std::vector<cv::Point3d> ellipseSkewness;
+                        cv::RotatedRect winnerEllipse = cv::fitEllipse(totalWinner);
+                        cv::Point2f rrVertices[4];
+                        winnerEllipse.points(rrVertices);
+                        std::vector<cv::Point> angleLine1, angleLine2, finalAngleLine;
+
+                        // calculate both axis
+                        angleLine1.emplace_back(cv::Point2f((rrVertices[0] + rrVertices[1]) / 2.0f));
+                        angleLine1.emplace_back(cv::Point2f((rrVertices[2] + rrVertices[3]) / 2.0f));
+
+                        angleLine2.emplace_back(cv::Point2f((rrVertices[1] + rrVertices[2]) / 2.0f));
+                        angleLine2.emplace_back(cv::Point2f((rrVertices[3] + rrVertices[0]) / 2.0f));
+
+                        // choose the longest
+                        if(Helpers::euclideanDistance(angleLine1[0], angleLine1[1]) > Helpers::euclideanDistance(angleLine2[0], angleLine2[1])) {
+                            finalAngleLine = angleLine1;
+                        } else {
+                            finalAngleLine = angleLine2;
+                        }
+
+                        // get all pixel values along the axis line
+                        cv::LineIterator srcImgLineIterator(src, finalAngleLine[0], finalAngleLine[1]);
+                        cv::Mat relevantValues = cv::Mat::zeros(0, 1, CV_8UC1);
+                        for(int i = 0; i < srcImgLineIterator.count; ++i, ++srcImgLineIterator) {
+                            cv::Vec3b pixel = src.at<cv::Vec3b>(srcImgLineIterator.pos());
+                            // only choose dominantly red pixels
+                            if(Helpers::isDominantlyRed(pixel)) {
+                                double value;
+                                cv::minMaxLoc(cv::Mat(pixel), nullptr, &value); // Value of Pixel -> HSV
+                                relevantValues.push_back(static_cast<uchar>(value));
+                            }
+                        }
+
+                        // split axis line in half an calculate the averages of the pixel values along those halves
+                        cv::Scalar halfAverage[2];
+                        halfAverage[0] = cv::mean(relevantValues.rowRange(0, relevantValues.rows / 2));
+                        halfAverage[1] = cv::mean(relevantValues.rowRange(relevantValues.rows / 2 + 1, relevantValues.rows - 1));
+
+                        // depending on which half is brighter, direction can be deduced
+                        if(halfAverage[0][0] > halfAverage[1][0]) {
+                            cv::arrowedLine(dst, finalAngleLine[0], finalAngleLine[1], cv::Scalar(255, 0 ,255), 4);
+                        } else if (halfAverage[0][0] < halfAverage[1][0]) {
+                            cv::arrowedLine(dst, finalAngleLine[1], finalAngleLine[0], cv::Scalar(255, 0 ,255), 4);
+                        } else {
+                            // double arrow if splatter direction is not unambiguous
+                            cv::arrowedLine(dst, finalAngleLine[0], finalAngleLine[1], cv::Scalar(255, 0 ,255), 4);
+                            cv::arrowedLine(dst, finalAngleLine[1], finalAngleLine[0], cv::Scalar(255, 0 ,255), 4);
+                        }
+
+                        cv::ellipse(dst, winnerEllipse, cv::Scalar(255, 255, 0));
+                        //cv::drawContours(dst, std::vector<std::vector<cv::Point>>({totalWinner}), 0, cv::Scalar(255, 127, 0), 0);
                     }
                 }
             }

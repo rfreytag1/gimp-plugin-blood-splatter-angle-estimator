@@ -85,7 +85,7 @@ namespace HSMW {
                         }
 
                         if(reds > 0) {
-                            int currentWhiteRatio = static_cast<int>(static_cast<float>(whites) / static_cast<float>(reds) * 100.0);
+                            int currentWhiteRatio = static_cast<int>((static_cast<float>(whites) / static_cast<float>(reds)) * 100.0);
                             if(reds > maxReds && currentWhiteRatio < Parameters::WHITE_RATIO) {
                                 maxReds = reds;
                                 maxWhites = whites;
