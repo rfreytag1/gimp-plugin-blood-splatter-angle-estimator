@@ -13,6 +13,7 @@
 #include "BloodSplatterAngleEstimator.h"
 #include "Helpers.h"
 #include "OptimaFinder.h"
+#include "Parameters.h"
 
 namespace HSMW {
     namespace Forensics {
@@ -94,9 +95,12 @@ namespace HSMW {
                             continue;
                         }
 
+                        // draw winner ellipse
+                        cv::RotatedRect winnerEllipse = cv::fitEllipse(totalWinner);
+                        cv::ellipse(dst, winnerEllipse, Parameters::ELLIPSE_PARAMETERS::COLOR, Parameters::ELLIPSE_PARAMETERS::THICKNESS);
+
                         // determine longest ellipse axism which is our splatter angle
                         std::vector<cv::Point3d> ellipseSkewness;
-                        cv::RotatedRect winnerEllipse = cv::fitEllipse(totalWinner);
                         cv::Point2f rrVertices[4];
                         winnerEllipse.points(rrVertices);
                         std::vector<cv::Point> angleLine1, angleLine2, finalAngleLine;
@@ -135,16 +139,15 @@ namespace HSMW {
 
                         // depending on which half is brighter, direction can be deduced
                         if(halfAverage[0][0] > halfAverage[1][0]) {
-                            cv::arrowedLine(dst, finalAngleLine[0], finalAngleLine[1], cv::Scalar(255, 0 ,255), 4);
+                            cv::arrowedLine(dst, finalAngleLine[0], finalAngleLine[1], Parameters::DIRECTION_INDICATOR_PARAMETERS::COLOR, Parameters::DIRECTION_INDICATOR_PARAMETERS::THICKNESS);
                         } else if (halfAverage[0][0] < halfAverage[1][0]) {
-                            cv::arrowedLine(dst, finalAngleLine[1], finalAngleLine[0], cv::Scalar(255, 0 ,255), 4);
+                            cv::arrowedLine(dst, finalAngleLine[1], finalAngleLine[0], Parameters::DIRECTION_INDICATOR_PARAMETERS::COLOR, Parameters::DIRECTION_INDICATOR_PARAMETERS::THICKNESS);
                         } else {
                             // double arrow if splatter direction is not unambiguous
-                            cv::arrowedLine(dst, finalAngleLine[0], finalAngleLine[1], cv::Scalar(255, 0 ,255), 4);
-                            cv::arrowedLine(dst, finalAngleLine[1], finalAngleLine[0], cv::Scalar(255, 0 ,255), 4);
+                            cv::arrowedLine(dst, finalAngleLine[0], finalAngleLine[1], Parameters::DIRECTION_INDICATOR_PARAMETERS::COLOR, Parameters::DIRECTION_INDICATOR_PARAMETERS::THICKNESS);
+                            cv::arrowedLine(dst, finalAngleLine[1], finalAngleLine[0], Parameters::DIRECTION_INDICATOR_PARAMETERS::COLOR, Parameters::DIRECTION_INDICATOR_PARAMETERS::THICKNESS);
                         }
 
-                        cv::ellipse(dst, winnerEllipse, cv::Scalar(255, 255, 0));
                         //cv::drawContours(dst, std::vector<std::vector<cv::Point>>({totalWinner}), 0, cv::Scalar(255, 127, 0), 0);
                     }
                 }

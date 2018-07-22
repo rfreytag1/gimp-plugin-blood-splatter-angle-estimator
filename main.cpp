@@ -25,7 +25,7 @@ static void estimate_splash(GimpDrawable *drawable, GimpPreview *preview, gint32
 static gboolean blood_splash_dialog(GimpDrawable *drawable, gint32 image);
 
 void add_layer (gint32 image, gint32 parent, cv::Mat src, std::string const& name,
-                GimpLayerModeEffects mode);
+                GimpLayerModeEffects mode, bool alpha = false);
 
 GimpPlugInInfo PLUG_IN_INFO = {
         NULL, //init
@@ -123,7 +123,7 @@ static void estimate_splash(GimpDrawable *drawable, GimpPreview *preview, gint32
     // create buffer to store gimp image data in OpenCV format
     cv::Mat imgBuffer = cv::Mat::zeros(height, width, CV_8UC3);
     // output buffer to be drawn on, this will contain data for the new image layer
-    cv::Mat imgOutBuffer = cv::Mat::zeros(height, width, CV_8UC3);
+    cv::Mat imgOutBuffer = cv::Mat::zeros(height, width, CV_8UC4);
 
 
     gimp_progress_init ("Blood Splatter Angle Estimation...");
@@ -146,14 +146,26 @@ static void estimate_splash(GimpDrawable *drawable, GimpPreview *preview, gint32
     }
 
     // prepare imgOutBuffer to be drawn on
-    imgBuffer.copyTo(imgOutBuffer);
+    // TODO: maybe don't copy image and keep it all black and replace black with alpha instead?
+    // imgBuffer.copyTo(imgOutBuffer);
 
     estimateBloodSplatterAngle(imgBuffer, imgOutBuffer);
 
     // GIMP images are in RGB but OpenCV in BGR -> BGR2RGB
-    cv::cvtColor(imgOutBuffer, imgOutBuffer, cv::COLOR_BGR2RGB);
+    cv::cvtColor(imgOutBuffer, imgOutBuffer, cv::COLOR_BGRA2RGBA);
+    // black -> transparent
 
-    add_layer(image, drawable->drawable_id, imgOutBuffer, "Test", GIMP_NORMAL_MODE);
+    imgOutBuffer.forEach<cv::Vec4b>([](cv::Vec4b &pixel, const int *position) -> void {
+        double max = 0.0;
+        cv::minMaxLoc(pixel, nullptr, &max);
+        if(max == 0.0) {
+            pixel[3] = 0;
+        } else {
+            pixel[3] = 255;
+        }
+    });
+
+    add_layer(image, drawable->drawable_id, imgOutBuffer, "Test", GIMP_NORMAL_MODE, true);
     gimp_progress_end();
 }
 
@@ -163,10 +175,16 @@ static void estimate_splash(GimpDrawable *drawable, GimpPreview *preview, gint32
 static gboolean blood_splash_dialog(GimpDrawable *drawable, gint32 image) {
     GtkWidget *dialog;
     GtkWidget *main_vbox;
-    GtkWidget *main_hbox;
+    GtkWidget *params_vbox;
     GtkWidget *frame;
     GtkWidget *alignment;
     GtkWidget *frame_label;
+    GtkWidget *ellipse_color_picker_hbox;
+    GtkWidget *ellipse_color_picker_label;
+    GtkWidget *ellipse_color_picker_button;
+    GtkWidget *dirind_color_picker_hbox;
+    GtkWidget *dirind_color_picker_label;
+    GtkWidget *dirind_color_picker_button;
     GtkWidget *preview;
     gboolean run;
 
@@ -198,15 +216,43 @@ static gboolean blood_splash_dialog(GimpDrawable *drawable, gint32 image) {
     gtk_container_add(GTK_CONTAINER (frame), alignment);
     gtk_alignment_set_padding(GTK_ALIGNMENT (alignment), 6, 6, 6, 6);
 
-    main_hbox = gtk_hbox_new(FALSE, 0);
-    gtk_widget_show(main_hbox);
-    gtk_container_add(GTK_CONTAINER (alignment), main_hbox);
+    params_vbox = gtk_vbox_new(FALSE, 0);
+    gtk_widget_show(params_vbox);
+    gtk_container_add(GTK_CONTAINER (alignment), params_vbox);
 
     // TODO: actually add any parameters to modify...
     frame_label = gtk_label_new("<b>Modify Parameters...</b>");
     gtk_widget_show(frame_label);
     gtk_frame_set_label_widget(GTK_FRAME (frame), frame_label);
     gtk_label_set_use_markup(GTK_LABEL (frame_label), TRUE);
+
+    // ellipse color picker
+    // TODO: set default color; connect color signal to actually change colors
+    ellipse_color_picker_hbox = gtk_hbox_new(FALSE, 0);
+    gtk_widget_show(ellipse_color_picker_hbox);
+    gtk_container_add(GTK_CONTAINER(params_vbox), ellipse_color_picker_hbox);
+
+    ellipse_color_picker_label = gtk_label_new("Result Ellipse Color:");
+    gtk_box_pack_start(GTK_BOX(ellipse_color_picker_hbox), ellipse_color_picker_label, FALSE, FALSE, 5);
+    gtk_widget_show(ellipse_color_picker_label);
+
+    ellipse_color_picker_button = gtk_color_button_new();
+    gtk_box_pack_start(GTK_BOX(ellipse_color_picker_hbox), ellipse_color_picker_button, FALSE, FALSE, 5);
+    gtk_widget_show(ellipse_color_picker_button);
+
+    // direction indicator color picker
+    // TODO: set default color; connect color signal to actually change colors
+    dirind_color_picker_hbox = gtk_hbox_new(FALSE, 0);
+    gtk_widget_show(dirind_color_picker_hbox);
+    gtk_container_add(GTK_CONTAINER(params_vbox), dirind_color_picker_hbox);
+
+    dirind_color_picker_label = gtk_label_new("Result Direction Indicator Color:");
+    gtk_box_pack_start(GTK_BOX(dirind_color_picker_hbox), dirind_color_picker_label, FALSE, FALSE, 5);
+    gtk_widget_show(dirind_color_picker_label);
+
+    dirind_color_picker_button = gtk_color_button_new();
+    gtk_box_pack_start(GTK_BOX(dirind_color_picker_hbox), dirind_color_picker_button, FALSE, FALSE, 5);
+    gtk_widget_show(dirind_color_picker_button);
 
     // TODO: draw preview
     //g_signal_connect_swapped (preview, "invalidated",
@@ -230,7 +276,7 @@ static gboolean blood_splash_dialog(GimpDrawable *drawable, gint32 image) {
  * (taken straight from https://github.com/mrossini-ethz/gimp-wavelet-decompose with minor adaptations)
  */
 void add_layer (gint32 image, gint32 parent, cv::Mat src, std::string const& name,
-           GimpLayerModeEffects mode)
+           GimpLayerModeEffects mode, bool alpha)
 {
     gint offx, offy;
     gint32 layer;
@@ -241,10 +287,18 @@ void add_layer (gint32 image, gint32 parent, cv::Mat src, std::string const& nam
 
     width = gimp_drawable_width (parent);
     height = gimp_drawable_height (parent);
-    channels = gimp_drawable_bpp (parent);
+    //channels = gimp_drawable_bpp (parent);
+    channels = src.channels();
 
-    layer = gimp_layer_new (image, name.c_str(), width, height,
+    if(alpha && channels == 4){
+        layer = gimp_layer_new (image, name.c_str(), width, height,
+                                gimp_drawable_type_with_alpha (parent), 100.0, mode);
+        //++channels;
+    } else {
+        layer = gimp_layer_new (image, name.c_str(), width, height,
                                 gimp_drawable_type (parent), 100.0, mode);
+    }
+
 
     drawable = gimp_drawable_get (layer);
     gimp_image_insert_layer (image, layer, -1, -1);
@@ -271,11 +325,11 @@ void add_layer (gint32 image, gint32 parent, cv::Mat src, std::string const& nam
         {
             for (x = 0; x < width; x++)
             {
-                for (c = 0; c < channels - 1; c++)
+                for (c = 0; c < channels; c++)
                 {
-                    line[x * channels + c] = src.at<cv::Vec3b>(y, x)[c];
+                    line[x * channels + c] = src.at<cv::Vec4b>(y, x)[c];
                 }
-                line[x * channels + channels - 1] = 255;
+                //line[x * channels + (channels - 1)] = 127;
             }
         }
         gimp_pixel_rgn_set_row (&rgn, line, 0, y, width);

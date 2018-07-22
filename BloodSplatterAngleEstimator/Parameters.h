@@ -5,6 +5,8 @@
 #ifndef TEST02_PARAMETERS_H
 #define TEST02_PARAMETERS_H
 
+#include <opencv2/opencv.hpp>
+
 namespace HSMW {
     namespace Forensics {
         namespace BloodSplatterAngleEstimators {
@@ -15,6 +17,15 @@ namespace HSMW {
                 extern int RED_DECREMENT;
                 extern int WHITE_INCREMENT;
                 extern int WHITE_RATIO;
+                struct ELLIPSE_PARAMETERS {
+                    static const cv::Scalar COLOR;
+                    static const int THICKNESS;
+                };
+
+                struct DIRECTION_INDICATOR_PARAMETERS {
+                    static const cv::Scalar COLOR;
+                    static const int THICKNESS;
+                };
             }
         }
     }
