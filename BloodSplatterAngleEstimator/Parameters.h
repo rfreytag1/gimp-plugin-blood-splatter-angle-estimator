@@ -18,13 +18,15 @@ namespace HSMW {
                 extern int WHITE_INCREMENT;
                 extern int WHITE_RATIO;
                 struct ELLIPSE_PARAMETERS {
-                    static const cv::Scalar COLOR;
-                    static const int THICKNESS;
+                    static cv::Scalar COLOR;
+                    static int THICKNESS;
+                    static int LINE_TYPE;
                 };
 
                 struct DIRECTION_INDICATOR_PARAMETERS {
-                    static const cv::Scalar COLOR;
-                    static const int THICKNESS;
+                    static cv::Scalar COLOR;
+                    static int THICKNESS;
+                    static int LINE_TYPE;
                 };
             }
         }

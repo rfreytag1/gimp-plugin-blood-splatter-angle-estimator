@@ -9,6 +9,7 @@ namespace HSMW {
     namespace Forensics {
         namespace BloodSplatterAngleEstimators {
             void estimateBloodSplatterAngle(cv::Mat const& src, cv::Mat & dst);
+            void estimateBloodSplatterAngle2(cv::Mat const& src, cv::Mat & dst);
         }
     }
 }

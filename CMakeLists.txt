@@ -2,6 +2,10 @@ cmake_minimum_required(VERSION 3.11)
 project(test01)
 
 set(CMAKE_CXX_STANDARD 17)
+set(CMAKE_MODULE_PATH ${PROJECT_SOURCE_DIR}/cmake)
+
+find_package(GTK2 REQUIRED)
+find_package(GIMP REQUIRED)
 
 include_directories(
         /usr/include/gimp-2.0
