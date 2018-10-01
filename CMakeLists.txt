@@ -2,11 +2,9 @@ cmake_minimum_required(VERSION 3.11)
 project(test01)
 
 set(CMAKE_CXX_STANDARD 17)
-set(CMAKE_MODULE_PATH ${PROJECT_SOURCE_DIR}/cmake)
+#set(CMAKE_MODULE_PATH ${PROJECT_SOURCE_DIR}/cmake)
 
 find_package(PkgConfig)
-
-#find_package(GTK2 REQUIRED)
 
 pkg_check_modules(GIMP REQUIRED gimp-2.0>=2.9.0)
 pkg_check_modules(GIMPUI REQUIRED gimpui-2.0>=2.9.0)
@@ -18,7 +16,13 @@ include_directories(
         ${OPENCV_INCLUDE_DIRS}
 )
 
-add_executable(plug-in-blood-splash-analyzer main.cpp BloodSplatterAngleEstimator/BloodSplatterAngleEstimator.cpp BloodSplatterAngleEstimator/OptimaFinder.cpp BloodSplatterAngleEstimator/Helpers.cpp BloodSplatterAngleEstimator/Parameters.cpp)
+set(SOURCE
+    ${CMAKE_CURRENT_SOURCE_DIR}/main.cpp
+)
+
+add_subdirectory(BloodSplatterAngleEstimator)
+
+add_executable(plug-in-blood-splash-analyzer ${SOURCE} ${HEADERS})
 
 target_link_libraries(plug-in-blood-splash-analyzer
         ${GIMP_LIBRARIES}
