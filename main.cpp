@@ -142,16 +142,16 @@ static void estimate_splash(GimpDrawable *drawable, GimpPreview *preview, gint32
     guchar *line;
     gint32 layer;
     gint x1 = 0, y1 = 0, x2 = 0, y2 = 0;
-
-    /*
+    
     // selection support
 
     gimp_drawable_mask_bounds(drawable->drawable_id, &x1, &y1, &x2, &y2);
     width = x2 - x1;
     height = y2 - y1;
-     */
+    /*
     width = gimp_drawable_width (drawable->drawable_id);
     height = gimp_drawable_height (drawable->drawable_id);
+    */
     channels = gimp_drawable_bpp (drawable->drawable_id);
 
     // pixel access
@@ -171,7 +171,7 @@ static void estimate_splash(GimpDrawable *drawable, GimpPreview *preview, gint32
     line = (guchar *) malloc (channels * width * sizeof (guchar));
     for(int i = 0; i < height; i++)
     {
-        gimp_pixel_rgn_get_row (&rgn_in, line, 0, i, width);
+        gimp_pixel_rgn_get_row (&rgn_in, line, x1, y1 + i, width);
 
         //something like this would be nicer:
         //imgBuffer.row(i) = cv::Mat(line);
@@ -348,9 +348,17 @@ void add_layer (gint32 image, gint32 parent, cv::Mat src, std::string const& nam
     GimpPixelRgn rgn;
     GimpDrawable *drawable;
     guchar *line;
+    
+    gint x1 = 0, y1 = 0, x2 = 0, y2 = 0;
+    
+    // selection support
 
-    width = gimp_drawable_width (parent);
-    height = gimp_drawable_height (parent);
+    gimp_drawable_mask_bounds(parent, &x1, &y1, &x2, &y2);
+    width = x2 - x1;
+    height = y2 - y1;
+
+    //width = gimp_drawable_width (parent);
+    //height = gimp_drawable_height (parent);
     //channels = gimp_drawable_bpp (parent);
     channels = src.channels();
 
@@ -400,9 +408,10 @@ void add_layer (gint32 image, gint32 parent, cv::Mat src, std::string const& nam
     }
     delete[] line;
 
-    gimp_drawable_offsets (parent, &offx, &offy);
-    gimp_layer_translate (layer, offx, offy);
+    //gimp_drawable_offsets (parent, &offx, &offy);
+    //gimp_layer_translate (layer, offx, offy);
+    gimp_layer_translate (layer, x1, y1);
     gimp_image_set_active_layer (image, parent);
     gimp_drawable_flush (drawable);
-    gimp_drawable_update (layer, 0, 0, width, height);
+    gimp_drawable_update (layer, x1, y1, width, height);
 }
