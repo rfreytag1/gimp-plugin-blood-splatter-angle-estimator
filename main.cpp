@@ -11,6 +11,10 @@
 
 #include <opencv2/opencv.hpp>
 
+#include "main.h"
+
+#include "plugin_ui.h"
+
 #include "BloodSplatterAngleEstimator/BloodSplatterAngleEstimator.h"
 #include "BloodSplatterAngleEstimator/Parameters.h"
 
@@ -24,23 +28,23 @@ static void run(const gchar *name, gint nparams, const GimpParam *param, gint *n
 
 static void estimate_splash(GimpDrawable *drawable, GimpPreview *preview, gint32 image);
 
-static gboolean blood_splash_dialog(GimpDrawable *drawable, gint32 image);
-
 void add_layer (gint32 image, gint32 parent, cv::Mat src, std::string const& name,
                 GimpLayerModeEffects mode, bool alpha = false);
 
-struct PluginParams
+cv::Scalar gimpColorToCVScalar(GimpRGB const& srcColor)
 {
-    guint white_ratio;
-};
+    return cv::Scalar(srcColor.b * 255, srcColor.g * 255, srcColor.r * 255, srcColor.a * 255);
+}
 
 PluginParams pparams = {
-        100
+        100,
+        {0.0, 0.0, 1.0, 1.0},
+        {0.0, 1.0, 0.0, 1.0},
 };
 
 GimpPlugInInfo PLUG_IN_INFO = {
-        NULL, //init
-        NULL, //quit
+        nullptr, //init
+        nullptr, //quit
         query,
         run
 };
@@ -72,6 +76,16 @@ static void query() {
                     GIMP_PDB_INT8,
                     (gchar*)"white-ratio",
                     (gchar*)"White/Red-Ratio"
+            },
+            {
+                    GIMP_PDB_COLOR,
+                    (gchar*)"ellipse-color",
+                    (gchar*)"Color of Ellipses"
+            },
+            {
+                    GIMP_PDB_COLOR,
+                    (gchar*)"dirind-color",
+                    (gchar*)"Color of Direction Indicators"
             }
     };
 
@@ -114,20 +128,26 @@ static void run(const gchar *name, gint nparams, const GimpParam *param, gint *n
     image = param[1].data.d_image;
     if (run_mode == GIMP_RUN_INTERACTIVE) {
         gimp_get_data ("plug-in-blood-splash-estimator", &pparams);
-        HSMW::Forensics::BloodSplatterAngleEstimators::Parameters::WHITE_RATIO = pparams.white_ratio;
         if(blood_splash_dialog(drawable, image) == TRUE) {
+            HSMW::Forensics::BloodSplatterAngleEstimators::Parameters::WHITE_RATIO = pparams.white_ratio;
+            Parameters::ELLIPSE_PARAMETERS::COLOR = gimpColorToCVScalar(pparams.ellipse_color);
+            Parameters::DIRECTION_INDICATOR_PARAMETERS::COLOR = gimpColorToCVScalar(pparams.dirind_color);
             estimate_splash(drawable, nullptr, image);
             gimp_set_data("plug-in-blood-splash-estimator", &pparams, sizeof(pparams));
         }
     } else if (run_mode == GIMP_RUN_WITH_LAST_VALS) {
-        HSMW::Forensics::BloodSplatterAngleEstimators::Parameters::WHITE_RATIO = pparams.white_ratio;
-        estimate_splash(drawable, nullptr, image);
         gimp_get_data ("plug-in-blood-splash-estimator", &pparams);
+        HSMW::Forensics::BloodSplatterAngleEstimators::Parameters::WHITE_RATIO = pparams.white_ratio;
+        Parameters::ELLIPSE_PARAMETERS::COLOR = gimpColorToCVScalar(pparams.ellipse_color);
+        Parameters::DIRECTION_INDICATOR_PARAMETERS::COLOR = gimpColorToCVScalar(pparams.dirind_color);
+        estimate_splash(drawable, nullptr, image);
     } else if (run_mode == GIMP_RUN_NONINTERACTIVE) {
         if (nparams != 4) {
             status = GIMP_PDB_CALLING_ERROR;
         } else {
-            HSMW::Forensics::BloodSplatterAngleEstimators::Parameters::WHITE_RATIO = values[3].data.d_int8;
+            HSMW::Forensics::BloodSplatterAngleEstimators::Parameters::WHITE_RATIO = param[3].data.d_int8;
+            Parameters::ELLIPSE_PARAMETERS::COLOR = gimpColorToCVScalar(param[4].data.d_color);
+            Parameters::DIRECTION_INDICATOR_PARAMETERS::COLOR = gimpColorToCVScalar(param[5].data.d_color);
             estimate_splash(drawable, nullptr, image);
         }
     }
@@ -205,133 +225,6 @@ static void estimate_splash(GimpDrawable *drawable, GimpPreview *preview, gint32
     */
     add_layer(image, drawable->drawable_id, imgOutBuffer, "Test", GIMP_NORMAL_MODE, true);
     gimp_progress_end();
-}
-
-/*
- * function that builds the plugin dialog with preview and parameter inputs
- */
-static gboolean blood_splash_dialog(GimpDrawable *drawable, gint32 image) {
-    GtkWidget *dialog;
-    GtkWidget *main_vbox;
-    GtkWidget *params_vbox;
-    GtkWidget *frame;
-    GtkWidget *alignment;
-    GtkWidget *frame_label;
-    GtkWidget *ellipse_color_picker_hbox;
-    GtkWidget *ellipse_color_picker_label;
-    GtkWidget *ellipse_color_picker_button;
-    GtkWidget *dirind_color_picker_hbox;
-    GtkWidget *dirind_color_picker_label;
-    GtkWidget *dirind_color_picker_button;
-    //GtkWidget *preview;
-
-    GtkWidget *white_ratio_hbox;
-    GtkWidget *white_ratio_label;
-    GtkWidget *white_ratio_scale;
-
-
-    gboolean run;
-
-    gimp_ui_init("bloodsplash", FALSE);
-
-    dialog = gimp_dialog_new("Blood Splash Estimator", "bloodsplash",
-                             NULL, (GtkDialogFlags)0,
-                             gimp_standard_help_func, "blood-splash-analyzer",
-                             GTK_STOCK_CANCEL, GTK_RESPONSE_CANCEL,
-                             GTK_STOCK_OK, GTK_RESPONSE_OK,
-
-                             NULL);
-
-    main_vbox = gtk_vbox_new(FALSE, 6);
-    gtk_container_add(GTK_CONTAINER (GTK_DIALOG(dialog)->vbox), main_vbox);
-    gtk_widget_show(main_vbox);
-
-    //preview = gimp_drawable_preview_new_from_drawable_id(drawable->drawable_id);
-    //gtk_box_pack_start(GTK_BOX (main_vbox), preview, TRUE, TRUE, 0);
-    //gtk_widget_show(preview);
-
-    frame = gtk_frame_new(NULL);
-    gtk_widget_show(frame);
-    gtk_box_pack_start(GTK_BOX (main_vbox), frame, TRUE, TRUE, 0);
-    gtk_container_set_border_width(GTK_CONTAINER (frame), 6);
-
-    alignment = gtk_alignment_new(0.5, 0.5, 1, 1);
-    gtk_widget_show(alignment);
-    gtk_container_add(GTK_CONTAINER (frame), alignment);
-    gtk_alignment_set_padding(GTK_ALIGNMENT (alignment), 6, 6, 6, 6);
-
-    params_vbox = gtk_vbox_new(FALSE, 0);
-    gtk_widget_show(params_vbox);
-    gtk_container_add(GTK_CONTAINER (alignment), params_vbox);
-
-    // TODO: actually add any parameters to modify...
-    frame_label = gtk_label_new("<b>Modify Parameters...</b>");
-    gtk_widget_show(frame_label);
-    gtk_frame_set_label_widget(GTK_FRAME (frame), frame_label);
-    gtk_label_set_use_markup(GTK_LABEL (frame_label), TRUE);
-
-    white_ratio_hbox = gtk_hbox_new(FALSE, 0);
-    gtk_widget_show(white_ratio_hbox);
-    gtk_container_add(GTK_CONTAINER(params_vbox), white_ratio_hbox);
-    white_ratio_label = gtk_label_new("White Ratio:");
-    gtk_box_pack_start(GTK_BOX(white_ratio_hbox), white_ratio_label, FALSE, FALSE, 5);
-    gtk_widget_show(white_ratio_label);
-
-    white_ratio_scale = gtk_hscale_new_with_range(0.0, 100.0 ,1.0);
-    gtk_range_set_value(GTK_RANGE(white_ratio_scale), HSMW::Forensics::BloodSplatterAngleEstimators::Parameters::WHITE_RATIO);
-    gtk_box_pack_end(GTK_BOX(white_ratio_hbox), white_ratio_scale, TRUE, TRUE, 5);
-    gtk_widget_show(white_ratio_scale);
-
-    g_signal_connect (gtk_range_get_adjustment(GTK_RANGE(white_ratio_scale)), "value_changed",
-                      G_CALLBACK (gimp_uint_adjustment_update),
-                      &pparams.white_ratio);
-
-    // ellipse color picker
-    // TODO: set default color; connect color signal to actually change colors
-    ellipse_color_picker_hbox = gtk_hbox_new(FALSE, 0);
-    gtk_widget_show(ellipse_color_picker_hbox);
-    gtk_container_add(GTK_CONTAINER(params_vbox), ellipse_color_picker_hbox);
-
-    ellipse_color_picker_label = gtk_label_new("Result Ellipse Color:");
-    gtk_box_pack_start(GTK_BOX(ellipse_color_picker_hbox), ellipse_color_picker_label, FALSE, FALSE, 5);
-    gtk_widget_show(ellipse_color_picker_label);
-
-    ellipse_color_picker_button = gtk_color_button_new();
-    gtk_box_pack_start(GTK_BOX(ellipse_color_picker_hbox), ellipse_color_picker_button, FALSE, FALSE, 5);
-    gtk_widget_show(ellipse_color_picker_button);
-
-    // direction indicator color picker
-    // TODO: set default color; connect color signal to actually change colors
-    dirind_color_picker_hbox = gtk_hbox_new(FALSE, 0);
-    gtk_widget_show(dirind_color_picker_hbox);
-    gtk_container_add(GTK_CONTAINER(params_vbox), dirind_color_picker_hbox);
-
-    dirind_color_picker_label = gtk_label_new("Result Direction Indicator Color:");
-    gtk_box_pack_start(GTK_BOX(dirind_color_picker_hbox), dirind_color_picker_label, FALSE, FALSE, 5);
-    gtk_widget_show(dirind_color_picker_label);
-
-    dirind_color_picker_button = gtk_color_button_new();
-    gtk_box_pack_start(GTK_BOX(dirind_color_picker_hbox), dirind_color_picker_button, FALSE, FALSE, 5);
-    gtk_widget_show(dirind_color_picker_button);
-
-    // White-Ratio
-
-    // TODO: draw preview
-    //g_signal_connect_swapped (preview, "invalidated",
-    //                          G_CALLBACK(estimate_splash),
-    //                          drawable);
-
-    //estimate_splash(drawable, GIMP_PREVIEW(preview), image);
-
-
-
-    gtk_widget_show(dialog);
-
-    run = (gimp_dialog_run(GIMP_DIALOG (dialog)) == GTK_RESPONSE_OK);
-
-    gtk_widget_destroy(dialog);
-
-    return run;
 }
 
 /*
