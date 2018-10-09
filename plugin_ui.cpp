@@ -41,12 +41,11 @@ gboolean blood_splash_dialog(GimpDrawable *drawable, gint32 image) {
     gimp_ui_init("bloodsplash", FALSE);
 
     dialog = gimp_dialog_new("Blood Splash Estimator", "bloodsplash",
-                             NULL, (GtkDialogFlags) 0,
+                             nullptr, (GtkDialogFlags) 0,
                              gimp_standard_help_func, "blood-splash-analyzer",
                              GTK_STOCK_CANCEL, GTK_RESPONSE_CANCEL,
                              GTK_STOCK_OK, GTK_RESPONSE_OK,
-
-                             NULL);
+                             nullptr);
 
     main_vbox = gtk_vbox_new(FALSE, 6);
     gtk_container_add(GTK_CONTAINER(GTK_DIALOG(dialog)->vbox), main_vbox);
@@ -56,7 +55,7 @@ gboolean blood_splash_dialog(GimpDrawable *drawable, gint32 image) {
     //gtk_box_pack_start(GTK_BOX (main_vbox), preview, TRUE, TRUE, 0);
     //gtk_widget_show(preview);
 
-    frame = gtk_frame_new(NULL);
+    frame = gtk_frame_new(nullptr);
     gtk_widget_show(frame);
     gtk_box_pack_start(GTK_BOX(main_vbox), frame, TRUE, TRUE, 0);
     gtk_container_set_border_width(GTK_CONTAINER(frame), 6);
@@ -70,12 +69,12 @@ gboolean blood_splash_dialog(GimpDrawable *drawable, gint32 image) {
     gtk_widget_show(params_vbox);
     gtk_container_add(GTK_CONTAINER(alignment), params_vbox);
 
-    // TODO: actually add any parameters to modify...
     frame_label = gtk_label_new("<b>Modify Parameters...</b>");
     gtk_widget_show(frame_label);
     gtk_frame_set_label_widget(GTK_FRAME(frame), frame_label);
     gtk_label_set_use_markup(GTK_LABEL(frame_label), TRUE);
 
+    // White/Red Ratio
     white_ratio_hbox = gtk_hbox_new(FALSE, 0);
     gtk_widget_show(white_ratio_hbox);
     gtk_container_add(GTK_CONTAINER(params_vbox), white_ratio_hbox);
@@ -94,7 +93,6 @@ gboolean blood_splash_dialog(GimpDrawable *drawable, gint32 image) {
                      &pparams.white_ratio);
 
     // ellipse color picker
-    // TODO: set default color; connect color signal to actually change colors
     ellipse_color_picker_hbox = gtk_hbox_new(FALSE, 0);
     gtk_widget_show(ellipse_color_picker_hbox);
     gtk_container_add(GTK_CONTAINER(params_vbox), ellipse_color_picker_hbox);
@@ -103,14 +101,15 @@ gboolean blood_splash_dialog(GimpDrawable *drawable, gint32 image) {
     gtk_box_pack_start(GTK_BOX(ellipse_color_picker_hbox), ellipse_color_picker_label, FALSE, FALSE, 5);
     gtk_widget_show(ellipse_color_picker_label);
 
-    ellipse_color_picker_button = gimp_color_button_new("Select Ellipse Color", 20, 15, &pparams.ellipse_color, GIMP_COLOR_AREA_SMALL_CHECKS);
+    ellipse_color_picker_button = gimp_color_button_new("Select Ellipse Color", 20, 15, &pparams.ellipse_color,
+                                                        GIMP_COLOR_AREA_SMALL_CHECKS);
     gtk_box_pack_start(GTK_BOX(ellipse_color_picker_hbox), ellipse_color_picker_button, FALSE, FALSE, 5);
     gtk_widget_show(ellipse_color_picker_button);
 
-    g_signal_connect(GIMP_COLOR_BUTTON(ellipse_color_picker_button), "color-changed", G_CALLBACK(colorpicker_color_changed), &pparams.ellipse_color);
+    g_signal_connect(GIMP_COLOR_BUTTON(ellipse_color_picker_button), "color-changed",
+                     G_CALLBACK(colorpicker_color_changed), &pparams.ellipse_color);
 
     // direction indicator color picker
-    // TODO: set default color; connect color signal to actually change colors
     dirind_color_picker_hbox = gtk_hbox_new(FALSE, 0);
     gtk_widget_show(dirind_color_picker_hbox);
     gtk_container_add(GTK_CONTAINER(params_vbox), dirind_color_picker_hbox);
@@ -119,22 +118,13 @@ gboolean blood_splash_dialog(GimpDrawable *drawable, gint32 image) {
     gtk_box_pack_start(GTK_BOX(dirind_color_picker_hbox), dirind_color_picker_label, FALSE, FALSE, 5);
     gtk_widget_show(dirind_color_picker_label);
 
-    dirind_color_picker_button = gimp_color_button_new("Select Direction Indicator Color", 20, 15, &pparams.dirind_color, GIMP_COLOR_AREA_SMALL_CHECKS);
+    dirind_color_picker_button = gimp_color_button_new("Select Direction Indicator Color", 20, 15,
+                                                       &pparams.dirind_color, GIMP_COLOR_AREA_SMALL_CHECKS);
     gtk_box_pack_start(GTK_BOX(dirind_color_picker_hbox), dirind_color_picker_button, FALSE, FALSE, 5);
     gtk_widget_show(dirind_color_picker_button);
 
-    g_signal_connect(GIMP_COLOR_BUTTON(dirind_color_picker_button), "color-changed", G_CALLBACK(colorpicker_color_changed), &pparams.dirind_color);
-
-    // White-Ratio
-
-    // TODO: draw preview
-    //g_signal_connect_swapped (preview, "invalidated",
-    //                          G_CALLBACK(estimate_splash),
-    //                          drawable);
-
-    //estimate_splash(drawable, GIMP_PREVIEW(preview), image);
-
-
+    g_signal_connect(GIMP_COLOR_BUTTON(dirind_color_picker_button), "color-changed",
+                     G_CALLBACK(colorpicker_color_changed), &pparams.dirind_color);
 
     gtk_widget_show(dialog);
 
@@ -145,7 +135,6 @@ gboolean blood_splash_dialog(GimpDrawable *drawable, gint32 image) {
     return run;
 }
 
-void colorpicker_color_changed(GtkWidget *widget, gpointer callback_data)
-{
-    gimp_color_button_get_color(GIMP_COLOR_BUTTON(widget), (GimpRGB*)callback_data);
+void colorpicker_color_changed(GtkWidget *widget, gpointer callback_data) {
+    gimp_color_button_get_color(GIMP_COLOR_BUTTON(widget), (GimpRGB *) callback_data);
 }

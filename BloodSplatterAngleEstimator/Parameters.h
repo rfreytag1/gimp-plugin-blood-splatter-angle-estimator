@@ -10,25 +10,35 @@
 namespace HSMW {
     namespace Forensics {
         namespace BloodSplatterAngleEstimators {
-            namespace Parameters {
-                extern int CONTOUR_BACK_ITERATION_STEPS;
-                extern int SUBCONTOUR_BACK_ITERATION_STEPS;
-                extern int RED_INCREMENT;
-                extern int RED_DECREMENT;
-                extern int WHITE_INCREMENT;
-                extern int WHITE_RATIO;
-                struct ELLIPSE_PARAMETERS {
-                    static cv::Scalar COLOR;
-                    static int THICKNESS;
-                    static int LINE_TYPE;
-                };
+            struct BaseAlgorithmParameters {
+                cv::Scalar ellipse_color;
+                uint ellipse_line_thickness;
+                int ellipse_line_type;
+                cv::Scalar direction_indicator_color;
+                uint direction_indicator_line_thickness;
+                int direction_indicator_line_type;
 
-                struct DIRECTION_INDICATOR_PARAMETERS {
-                    static cv::Scalar COLOR;
-                    static int THICKNESS;
-                    static int LINE_TYPE;
-                };
-            }
+                BaseAlgorithmParameters() : ellipse_color(0, 0, 255, 255), ellipse_line_thickness(2),
+                                            ellipse_line_type(CV_AA),
+                                            direction_indicator_color(0, 255, 0, 255),
+                                            direction_indicator_line_thickness(2),
+                                            direction_indicator_line_type(CV_AA) {
+                }
+            };
+
+            struct GrunertAlgorithmParameters : public BaseAlgorithmParameters {
+                int red_weight;
+                int white_weight;
+                uint white_ratio;
+                uint contour_back_iteration_steps;
+                uint subcontour_back_iteration_steps;
+
+                GrunertAlgorithmParameters()
+                        : BaseAlgorithmParameters(), red_weight(1), white_weight(1), white_ratio(100),
+                          contour_back_iteration_steps(1), subcontour_back_iteration_steps(1) {
+
+                }
+            };
         }
     }
 }

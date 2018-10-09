@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.11)
-project(test01)
+project(gimp-plugin-blood-splatter-angle-estimator)
 
 set(CMAKE_CXX_STANDARD 17)
 #set(CMAKE_MODULE_PATH ${PROJECT_SOURCE_DIR}/cmake)
@@ -10,7 +10,7 @@ pkg_check_modules(GIMP REQUIRED gimp-2.0>=2.9.0)
 pkg_check_modules(GIMPUI REQUIRED gimpui-2.0>=2.9.0)
 pkg_check_modules(OPENCV REQUIRED opencv>=3.4.0)
 
-# exclude two OpenCV libraries that are linked against GTK3 and thus interfere
+# exclude OpenCV libraries that are linked against GTK3 and thus interfere with GIMP's GTK2
 list(REMOVE_ITEM OPENCV_LIBRARIES opencv_highgui opencv_viz opencv_ccalib)
 
 include_directories(

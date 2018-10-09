@@ -129,25 +129,19 @@ static void run(const gchar *name, gint nparams, const GimpParam *param, gint *n
     if (run_mode == GIMP_RUN_INTERACTIVE) {
         gimp_get_data ("plug-in-blood-splash-estimator", &pparams);
         if(blood_splash_dialog(drawable, image) == TRUE) {
-            HSMW::Forensics::BloodSplatterAngleEstimators::Parameters::WHITE_RATIO = pparams.white_ratio;
-            Parameters::ELLIPSE_PARAMETERS::COLOR = gimpColorToCVScalar(pparams.ellipse_color);
-            Parameters::DIRECTION_INDICATOR_PARAMETERS::COLOR = gimpColorToCVScalar(pparams.dirind_color);
             estimate_splash(drawable, nullptr, image);
             gimp_set_data("plug-in-blood-splash-estimator", &pparams, sizeof(pparams));
         }
     } else if (run_mode == GIMP_RUN_WITH_LAST_VALS) {
         gimp_get_data ("plug-in-blood-splash-estimator", &pparams);
-        HSMW::Forensics::BloodSplatterAngleEstimators::Parameters::WHITE_RATIO = pparams.white_ratio;
-        Parameters::ELLIPSE_PARAMETERS::COLOR = gimpColorToCVScalar(pparams.ellipse_color);
-        Parameters::DIRECTION_INDICATOR_PARAMETERS::COLOR = gimpColorToCVScalar(pparams.dirind_color);
         estimate_splash(drawable, nullptr, image);
     } else if (run_mode == GIMP_RUN_NONINTERACTIVE) {
         if (nparams != 4) {
             status = GIMP_PDB_CALLING_ERROR;
         } else {
-            HSMW::Forensics::BloodSplatterAngleEstimators::Parameters::WHITE_RATIO = param[3].data.d_int8;
-            Parameters::ELLIPSE_PARAMETERS::COLOR = gimpColorToCVScalar(param[4].data.d_color);
-            Parameters::DIRECTION_INDICATOR_PARAMETERS::COLOR = gimpColorToCVScalar(param[5].data.d_color);
+            pparams.white_ratio = param[3].data.d_int8;
+            pparams.ellipse_color = param[4].data.d_color;
+            pparams.dirind_color = param[5].data.d_color;
             estimate_splash(drawable, nullptr, image);
         }
     }
@@ -207,7 +201,12 @@ static void estimate_splash(GimpDrawable *drawable, GimpPreview *preview, gint32
     // TODO: maybe don't copy image and keep it all black and replace black with alpha instead?
     // imgBuffer.copyTo(imgOutBuffer);
 
-    estimateBloodSplatterAngle(imgBuffer, imgOutBuffer);
+    GrunertAlgorithmParameters gaparams;
+    gaparams.white_ratio = pparams.white_ratio;
+    gaparams.ellipse_color = gimpColorToCVScalar(pparams.ellipse_color);
+    gaparams.direction_indicator_color = gimpColorToCVScalar(pparams.dirind_color);
+
+    estimateBloodSplatterAngle(imgBuffer, imgOutBuffer, &gaparams);
 
     // GIMP images are in RGB but OpenCV in BGR -> BGR2RGB
     cv::cvtColor(imgOutBuffer, imgOutBuffer, cv::COLOR_BGRA2RGBA);
@@ -223,7 +222,7 @@ static void estimate_splash(GimpDrawable *drawable, GimpPreview *preview, gint32
         }
     });
     */
-    add_layer(image, drawable->drawable_id, imgOutBuffer, "Test", GIMP_NORMAL_MODE, true);
+    add_layer(image, drawable->drawable_id, imgOutBuffer, "BSAE Result", GIMP_NORMAL_MODE, true);
     gimp_progress_end();
 }
 
