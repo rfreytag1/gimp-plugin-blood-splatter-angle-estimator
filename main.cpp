@@ -4,13 +4,19 @@
 
 // TODO: cleanup a bit and move things in own modules, e.g. UI etc.
 #include <string>
+#include <cstdlib>
 
 #include <libgimp/gimp.h>
 #include <libgimp/gimpui.h>
 
 #include <opencv2/opencv.hpp>
 
+#include "main.h"
+
+#include "plugin_ui.h"
+
 #include "BloodSplatterAngleEstimator/BloodSplatterAngleEstimator.h"
+#include "BloodSplatterAngleEstimator/Parameters.h"
 
 using namespace HSMW::Forensics::BloodSplatterAngleEstimators;
 
@@ -22,14 +28,23 @@ static void run(const gchar *name, gint nparams, const GimpParam *param, gint *n
 
 static void estimate_splash(GimpDrawable *drawable, GimpPreview *preview, gint32 image);
 
-static gboolean blood_splash_dialog(GimpDrawable *drawable, gint32 image);
-
 void add_layer (gint32 image, gint32 parent, cv::Mat src, std::string const& name,
                 GimpLayerModeEffects mode, bool alpha = false);
 
+cv::Scalar gimpColorToCVScalar(GimpRGB const& srcColor)
+{
+    return cv::Scalar(srcColor.b * 255, srcColor.g * 255, srcColor.r * 255, srcColor.a * 255);
+}
+
+PluginParams pparams = {
+        100,
+        {0.0, 0.0, 1.0, 1.0},
+        {0.0, 1.0, 0.0, 1.0},
+};
+
 GimpPlugInInfo PLUG_IN_INFO = {
-        NULL, //init
-        NULL, //quit
+        nullptr, //init
+        nullptr, //quit
         query,
         run
 };
@@ -44,18 +59,33 @@ static void query() {
     static GimpParamDef args[] = {
             {
                     GIMP_PDB_INT32,
-                    "run-mode",
-                    "Run mode"
+                    (gchar*)"run-mode",
+                    (gchar*)"Run mode"
             },
             {
                     GIMP_PDB_IMAGE,
-                    "image",
-                    "Input image"
+                    (gchar*)"image",
+                    (gchar*)"Input image"
             },
             {
                     GIMP_PDB_DRAWABLE,
-                    "drawable",
-                    "Input drawable"
+                    (gchar*)"drawable",
+                    (gchar*)"Input drawable"
+            },
+            {
+                    GIMP_PDB_INT8,
+                    (gchar*)"white-ratio",
+                    (gchar*)"White/Red-Ratio"
+            },
+            {
+                    GIMP_PDB_COLOR,
+                    (gchar*)"ellipse-color",
+                    (gchar*)"Color of Ellipses"
+            },
+            {
+                    GIMP_PDB_COLOR,
+                    (gchar*)"dirind-color",
+                    (gchar*)"Color of Direction Indicators"
             }
     };
 
@@ -70,7 +100,7 @@ static void query() {
             "RGB*, GRAY*",
             GIMP_PLUGIN,
             G_N_ELEMENTS (args), 0,
-            args, NULL);
+            args, nullptr);
 
     gimp_plugin_menu_register("plug-in-blood-splash-analyzer",
                               "<Image>/Filters/Misc");
@@ -96,8 +126,22 @@ static void run(const gchar *name, gint nparams, const GimpParam *param, gint *n
 
     drawable = gimp_drawable_get(param[2].data.d_drawable);
     image = param[1].data.d_image;
-    if (run_mode != GIMP_RUN_NONINTERACTIVE) {
+    if (run_mode == GIMP_RUN_INTERACTIVE) {
+        gimp_get_data ("plug-in-blood-splash-estimator", &pparams);
         if(blood_splash_dialog(drawable, image) == TRUE) {
+            estimate_splash(drawable, nullptr, image);
+            gimp_set_data("plug-in-blood-splash-estimator", &pparams, sizeof(pparams));
+        }
+    } else if (run_mode == GIMP_RUN_WITH_LAST_VALS) {
+        gimp_get_data ("plug-in-blood-splash-estimator", &pparams);
+        estimate_splash(drawable, nullptr, image);
+    } else if (run_mode == GIMP_RUN_NONINTERACTIVE) {
+        if (nparams != 4) {
+            status = GIMP_PDB_CALLING_ERROR;
+        } else {
+            pparams.white_ratio = param[3].data.d_int8;
+            pparams.ellipse_color = param[4].data.d_color;
+            pparams.dirind_color = param[5].data.d_color;
             estimate_splash(drawable, nullptr, image);
         }
     }
@@ -111,13 +155,21 @@ static void estimate_splash(GimpDrawable *drawable, GimpPreview *preview, gint32
     GimpPixelRgn rgn_in;
     guchar *line;
     gint32 layer;
+    gint x1 = 0, y1 = 0, x2 = 0, y2 = 0;
+    
+    // selection support
 
+    gimp_drawable_mask_bounds(drawable->drawable_id, &x1, &y1, &x2, &y2);
+    width = x2 - x1;
+    height = y2 - y1;
+    /*
     width = gimp_drawable_width (drawable->drawable_id);
     height = gimp_drawable_height (drawable->drawable_id);
+    */
     channels = gimp_drawable_bpp (drawable->drawable_id);
 
     // pixel access
-    gimp_pixel_rgn_init (&rgn_in, drawable, 0, 0, width, height, FALSE, FALSE);
+    gimp_pixel_rgn_init (&rgn_in, drawable, x1, y1, width, height, FALSE, FALSE);
     gimp_tile_cache_ntiles (drawable->width / gimp_tile_width () + 1);
 
     // create buffer to store gimp image data in OpenCV format
@@ -133,15 +185,15 @@ static void estimate_splash(GimpDrawable *drawable, GimpPreview *preview, gint32
     line = (guchar *) malloc (channels * width * sizeof (guchar));
     for(int i = 0; i < height; i++)
     {
-        gimp_pixel_rgn_get_row (&rgn_in, line, 0, i, width);
+        gimp_pixel_rgn_get_row (&rgn_in, line, x1, y1 + i, width);
 
         //something like this would be nicer:
         //imgBuffer.row(i) = cv::Mat(line);
         for(int x = 0; x < width; x++)
         {
-            imgBuffer.at<cv::Vec3b>(i, x) = cv::Vec3b(((channels >= 3) ? line[x * channels + 2] : 0x00),
-                                                    ((channels >= 2) ? line[x * channels + 1] : 0x00),
-                                                    ((channels >= 1) ? line[x * channels + 0] : 0x00));
+            imgBuffer.at<cv::Vec3b>(i, x) = cv::Vec3b(((channels >= 3) ? line[x * channels + 2] : (uchar)0x00),
+                                                    ((channels >= 2) ? line[x * channels + 1] : (uchar)0x00),
+                                                    ((channels >= 1) ? line[x * channels + 0] : (uchar)0x00));
         }
     }
 
@@ -149,12 +201,17 @@ static void estimate_splash(GimpDrawable *drawable, GimpPreview *preview, gint32
     // TODO: maybe don't copy image and keep it all black and replace black with alpha instead?
     // imgBuffer.copyTo(imgOutBuffer);
 
-    estimateBloodSplatterAngle(imgBuffer, imgOutBuffer);
+    GrunertAlgorithmParameters gaparams;
+    gaparams.white_ratio = pparams.white_ratio;
+    gaparams.ellipse_color = gimpColorToCVScalar(pparams.ellipse_color);
+    gaparams.direction_indicator_color = gimpColorToCVScalar(pparams.dirind_color);
+
+    estimateBloodSplatterAngle(imgBuffer, imgOutBuffer, &gaparams);
 
     // GIMP images are in RGB but OpenCV in BGR -> BGR2RGB
     cv::cvtColor(imgOutBuffer, imgOutBuffer, cv::COLOR_BGRA2RGBA);
     // black -> transparent
-
+    /*
     imgOutBuffer.forEach<cv::Vec4b>([](cv::Vec4b &pixel, const int *position) -> void {
         double max = 0.0;
         cv::minMaxLoc(pixel, nullptr, &max);
@@ -164,110 +221,9 @@ static void estimate_splash(GimpDrawable *drawable, GimpPreview *preview, gint32
             pixel[3] = 255;
         }
     });
-
-    add_layer(image, drawable->drawable_id, imgOutBuffer, "Test", GIMP_NORMAL_MODE, true);
+    */
+    add_layer(image, drawable->drawable_id, imgOutBuffer, "BSAE Result", GIMP_NORMAL_MODE, true);
     gimp_progress_end();
-}
-
-/*
- * function that builds the plugin dialog with preview and parameter inputs
- */
-static gboolean blood_splash_dialog(GimpDrawable *drawable, gint32 image) {
-    GtkWidget *dialog;
-    GtkWidget *main_vbox;
-    GtkWidget *params_vbox;
-    GtkWidget *frame;
-    GtkWidget *alignment;
-    GtkWidget *frame_label;
-    GtkWidget *ellipse_color_picker_hbox;
-    GtkWidget *ellipse_color_picker_label;
-    GtkWidget *ellipse_color_picker_button;
-    GtkWidget *dirind_color_picker_hbox;
-    GtkWidget *dirind_color_picker_label;
-    GtkWidget *dirind_color_picker_button;
-    GtkWidget *preview;
-    gboolean run;
-
-    gimp_ui_init("bloodsplash", FALSE);
-
-    dialog = gimp_dialog_new("Blood Splash Estimator", "bloodsplash",
-                             NULL, (GtkDialogFlags)0,
-                             gimp_standard_help_func, "blood-splash-analyzer",
-                             GTK_STOCK_CANCEL, GTK_RESPONSE_CANCEL,
-                             GTK_STOCK_OK, GTK_RESPONSE_OK,
-
-                             NULL);
-
-    main_vbox = gtk_vbox_new(FALSE, 6);
-    gtk_container_add(GTK_CONTAINER (GTK_DIALOG(dialog)->vbox), main_vbox);
-    gtk_widget_show(main_vbox);
-
-    preview = gimp_drawable_preview_new_from_drawable_id(drawable->drawable_id);
-    gtk_box_pack_start(GTK_BOX (main_vbox), preview, TRUE, TRUE, 0);
-    gtk_widget_show(preview);
-
-    frame = gtk_frame_new(NULL);
-    gtk_widget_show(frame);
-    gtk_box_pack_start(GTK_BOX (main_vbox), frame, TRUE, TRUE, 0);
-    gtk_container_set_border_width(GTK_CONTAINER (frame), 6);
-
-    alignment = gtk_alignment_new(0.5, 0.5, 1, 1);
-    gtk_widget_show(alignment);
-    gtk_container_add(GTK_CONTAINER (frame), alignment);
-    gtk_alignment_set_padding(GTK_ALIGNMENT (alignment), 6, 6, 6, 6);
-
-    params_vbox = gtk_vbox_new(FALSE, 0);
-    gtk_widget_show(params_vbox);
-    gtk_container_add(GTK_CONTAINER (alignment), params_vbox);
-
-    // TODO: actually add any parameters to modify...
-    frame_label = gtk_label_new("<b>Modify Parameters...</b>");
-    gtk_widget_show(frame_label);
-    gtk_frame_set_label_widget(GTK_FRAME (frame), frame_label);
-    gtk_label_set_use_markup(GTK_LABEL (frame_label), TRUE);
-
-    // ellipse color picker
-    // TODO: set default color; connect color signal to actually change colors
-    ellipse_color_picker_hbox = gtk_hbox_new(FALSE, 0);
-    gtk_widget_show(ellipse_color_picker_hbox);
-    gtk_container_add(GTK_CONTAINER(params_vbox), ellipse_color_picker_hbox);
-
-    ellipse_color_picker_label = gtk_label_new("Result Ellipse Color:");
-    gtk_box_pack_start(GTK_BOX(ellipse_color_picker_hbox), ellipse_color_picker_label, FALSE, FALSE, 5);
-    gtk_widget_show(ellipse_color_picker_label);
-
-    ellipse_color_picker_button = gtk_color_button_new();
-    gtk_box_pack_start(GTK_BOX(ellipse_color_picker_hbox), ellipse_color_picker_button, FALSE, FALSE, 5);
-    gtk_widget_show(ellipse_color_picker_button);
-
-    // direction indicator color picker
-    // TODO: set default color; connect color signal to actually change colors
-    dirind_color_picker_hbox = gtk_hbox_new(FALSE, 0);
-    gtk_widget_show(dirind_color_picker_hbox);
-    gtk_container_add(GTK_CONTAINER(params_vbox), dirind_color_picker_hbox);
-
-    dirind_color_picker_label = gtk_label_new("Result Direction Indicator Color:");
-    gtk_box_pack_start(GTK_BOX(dirind_color_picker_hbox), dirind_color_picker_label, FALSE, FALSE, 5);
-    gtk_widget_show(dirind_color_picker_label);
-
-    dirind_color_picker_button = gtk_color_button_new();
-    gtk_box_pack_start(GTK_BOX(dirind_color_picker_hbox), dirind_color_picker_button, FALSE, FALSE, 5);
-    gtk_widget_show(dirind_color_picker_button);
-
-    // TODO: draw preview
-    //g_signal_connect_swapped (preview, "invalidated",
-    //                          G_CALLBACK(estimate_splash),
-    //                          drawable);
-
-    //estimate_splash(drawable, GIMP_PREVIEW(preview), image);
-
-    gtk_widget_show(dialog);
-
-    run = (gimp_dialog_run(GIMP_DIALOG (dialog)) == GTK_RESPONSE_OK);
-
-    gtk_widget_destroy(dialog);
-
-    return run;
 }
 
 /*
@@ -284,9 +240,17 @@ void add_layer (gint32 image, gint32 parent, cv::Mat src, std::string const& nam
     GimpPixelRgn rgn;
     GimpDrawable *drawable;
     guchar *line;
+    
+    gint x1 = 0, y1 = 0, x2 = 0, y2 = 0;
+    
+    // selection support
 
-    width = gimp_drawable_width (parent);
-    height = gimp_drawable_height (parent);
+    gimp_drawable_mask_bounds(parent, &x1, &y1, &x2, &y2);
+    width = x2 - x1;
+    height = y2 - y1;
+
+    //width = gimp_drawable_width (parent);
+    //height = gimp_drawable_height (parent);
     //channels = gimp_drawable_bpp (parent);
     channels = src.channels();
 
@@ -334,11 +298,12 @@ void add_layer (gint32 image, gint32 parent, cv::Mat src, std::string const& nam
         }
         gimp_pixel_rgn_set_row (&rgn, line, 0, y, width);
     }
-    free (line);
+    delete[] line;
 
-    gimp_drawable_offsets (parent, &offx, &offy);
-    gimp_layer_translate (layer, offx, offy);
+    //gimp_drawable_offsets (parent, &offx, &offy);
+    //gimp_layer_translate (layer, offx, offy);
+    gimp_layer_translate (layer, x1, y1);
     gimp_image_set_active_layer (image, parent);
     gimp_drawable_flush (drawable);
-    gimp_drawable_update (layer, 0, 0, width, height);
+    gimp_drawable_update (layer, x1, y1, width, height);
 }

@@ -5,6 +5,8 @@
 #include <iostream>
 #include <vector>
 #include <algorithm>
+#include <exception>
+#include <stdexcept>
 
 #include <opencv2/opencv.hpp>
 #include <opencv2/imgcodecs.hpp>
@@ -18,7 +20,11 @@
 namespace HSMW {
     namespace Forensics {
         namespace BloodSplatterAngleEstimators {
-            void estimateBloodSplatterAngle(cv::Mat const &src, cv::Mat &dst) {
+            void
+            estimateBloodSplatterAngle(cv::Mat const &src, cv::Mat &dst, GrunertAlgorithmParameters const *params) {
+                if (params == nullptr) {
+                    throw std::invalid_argument("Parameters required!");
+                }
                 // get our image buffers ready
                 cv::Mat srcGrayImage;
                 cv::Mat srcGrayCannyImage;
@@ -50,7 +56,7 @@ namespace HSMW {
 
                         cv::Point topEnd, bottomEnd;
                         Helpers::getPointPairWithMaxEuclideanDistance(completeContourPoints,
-                                                             topEnd, bottomEnd);
+                                                                      topEnd, bottomEnd);
 
                         // create copies of the original list
                         std::vector<cv::Point> pointChainFromTopPoint, pointChainFromBottomPoint;
@@ -62,44 +68,47 @@ namespace HSMW {
                         // sort in place by euclidean distance between points and respective end points
                         std::sort(pointChainFromTopPoint.begin(), pointChainFromTopPoint.end(),
                                   [topEnd](cv::Point const &a, cv::Point const &b) {
-                                      return Helpers::euclideanDistance(topEnd, a) < Helpers::euclideanDistance(topEnd, b);
+                                      return Helpers::euclideanDistance(topEnd, a) <
+                                             Helpers::euclideanDistance(topEnd, b);
                                   });
 
                         std::sort(pointChainFromBottomPoint.begin(), pointChainFromBottomPoint.end(),
                                   [bottomEnd](cv::Point const &a, cv::Point const &b) {
-                                      return Helpers::euclideanDistance(bottomEnd, a) < Helpers::euclideanDistance(bottomEnd, b);
+                                      return Helpers::euclideanDistance(bottomEnd, a) <
+                                             Helpers::euclideanDistance(bottomEnd, b);
                                   });
 
                         // determine winner hulls for final analysis
                         std::vector<cv::Point> winnerHullFromTop, winnerHullFromBottom, totalWinner;
-                        winnerHullFromTop = OptimaFinders::findOptima(pointChainFromTopPoint, src);
-                        winnerHullFromBottom = OptimaFinders::findOptima(pointChainFromBottomPoint, src);
+                        winnerHullFromTop = OptimaFinders::findOptima(pointChainFromTopPoint, src, params);
+                        winnerHullFromBottom = OptimaFinders::findOptima(pointChainFromBottomPoint, src, params);
 
                         // draw winner onto image buffer to be displayed in GIMP
-                        if(!winnerHullFromTop.empty() && !winnerHullFromBottom.empty()) {
-                            if(winnerHullFromTop.size() >= winnerHullFromBottom.size()) {
+                        if (!winnerHullFromTop.empty() && !winnerHullFromBottom.empty()) {
+                            if (winnerHullFromTop.size() >= winnerHullFromBottom.size()) {
                                 totalWinner = winnerHullFromTop;
                             } else {
                                 totalWinner = winnerHullFromBottom;
                             }
                         } else {
-                            if(!winnerHullFromTop.empty()) {
+                            if (!winnerHullFromTop.empty()) {
                                 totalWinner = winnerHullFromTop;
                             }
-                            if(!winnerHullFromBottom.empty()) {
+                            if (!winnerHullFromBottom.empty()) {
                                 totalWinner = winnerHullFromBottom;
                             }
                         }
 
-                        if(totalWinner.empty()) {
+                        if (totalWinner.empty()) {
                             continue;
                         }
 
                         // draw winner ellipse
                         cv::RotatedRect winnerEllipse = cv::fitEllipse(totalWinner);
-                        cv::ellipse(dst, winnerEllipse, Parameters::ELLIPSE_PARAMETERS::COLOR, Parameters::ELLIPSE_PARAMETERS::THICKNESS);
+                        cv::ellipse(dst, winnerEllipse, params->ellipse_color, params->ellipse_line_thickness,
+                                    params->ellipse_line_type);
 
-                        // determine longest ellipse axism which is our splatter angle
+                        // determine longest ellipse axis, which is our splatter angle
                         std::vector<cv::Point3d> ellipseSkewness;
                         cv::Point2f rrVertices[4];
                         winnerEllipse.points(rrVertices);
@@ -113,7 +122,8 @@ namespace HSMW {
                         angleLine2.emplace_back(cv::Point2f((rrVertices[3] + rrVertices[0]) / 2.0f));
 
                         // choose the longest
-                        if(Helpers::euclideanDistance(angleLine1[0], angleLine1[1]) > Helpers::euclideanDistance(angleLine2[0], angleLine2[1])) {
+                        if (Helpers::euclideanDistance(angleLine1[0], angleLine1[1]) >
+                            Helpers::euclideanDistance(angleLine2[0], angleLine2[1])) {
                             finalAngleLine = angleLine1;
                         } else {
                             finalAngleLine = angleLine2;
@@ -122,10 +132,10 @@ namespace HSMW {
                         // get all pixel values along the axis line
                         cv::LineIterator srcImgLineIterator(src, finalAngleLine[0], finalAngleLine[1]);
                         cv::Mat relevantValues = cv::Mat::zeros(0, 1, CV_8UC1);
-                        for(int i = 0; i < srcImgLineIterator.count; ++i, ++srcImgLineIterator) {
-                            cv::Vec3b pixel = src.at<cv::Vec3b>(srcImgLineIterator.pos());
+                        for (int i = 0; i < srcImgLineIterator.count; ++i, ++srcImgLineIterator) {
+                            cv::Vec3b const &pixel = src.at<cv::Vec3b>(srcImgLineIterator.pos());
                             // only choose dominantly red pixels
-                            if(Helpers::isDominantlyRed(pixel)) {
+                            if (Helpers::isDominantlyRed(pixel)) {
                                 double value;
                                 cv::minMaxLoc(cv::Mat(pixel), nullptr, &value); // Value of Pixel -> HSV
                                 relevantValues.push_back(static_cast<uchar>(value));
@@ -135,22 +145,58 @@ namespace HSMW {
                         // split axis line in half an calculate the averages of the pixel values along those halves
                         cv::Scalar halfAverage[2];
                         halfAverage[0] = cv::mean(relevantValues.rowRange(0, relevantValues.rows / 2));
-                        halfAverage[1] = cv::mean(relevantValues.rowRange(relevantValues.rows / 2 + 1, relevantValues.rows - 1));
+                        halfAverage[1] = cv::mean(
+                                relevantValues.rowRange(relevantValues.rows / 2 + 1, relevantValues.rows - 1));
 
                         // depending on which half is brighter, direction can be deduced
-                        if(halfAverage[0][0] > halfAverage[1][0]) {
-                            cv::arrowedLine(dst, finalAngleLine[0], finalAngleLine[1], Parameters::DIRECTION_INDICATOR_PARAMETERS::COLOR, Parameters::DIRECTION_INDICATOR_PARAMETERS::THICKNESS);
-                        } else if (halfAverage[0][0] < halfAverage[1][0]) {
-                            cv::arrowedLine(dst, finalAngleLine[1], finalAngleLine[0], Parameters::DIRECTION_INDICATOR_PARAMETERS::COLOR, Parameters::DIRECTION_INDICATOR_PARAMETERS::THICKNESS);
-                        } else {
-                            // double arrow if splatter direction is not unambiguous
-                            cv::arrowedLine(dst, finalAngleLine[0], finalAngleLine[1], Parameters::DIRECTION_INDICATOR_PARAMETERS::COLOR, Parameters::DIRECTION_INDICATOR_PARAMETERS::THICKNESS);
-                            cv::arrowedLine(dst, finalAngleLine[1], finalAngleLine[0], Parameters::DIRECTION_INDICATOR_PARAMETERS::COLOR, Parameters::DIRECTION_INDICATOR_PARAMETERS::THICKNESS);
+                        if (halfAverage[0][0] >= halfAverage[1][0]) {
+                            cv::arrowedLine(dst, finalAngleLine[0], finalAngleLine[1],
+                                            params->direction_indicator_color,
+                                            params->direction_indicator_line_thickness,
+                                            params->direction_indicator_line_type);
                         }
+
+                        if (halfAverage[0][0] <= halfAverage[1][0]) {
+                            cv::arrowedLine(dst, finalAngleLine[1], finalAngleLine[0],
+                                            params->direction_indicator_color,
+                                            params->direction_indicator_line_thickness,
+                                            params->direction_indicator_line_type);
+                        }/* else {
+                            // double arrow if splatter direction is not unambiguous
+                            cv::arrowedLine(dst, finalAngleLine[0], finalAngleLine[1], Parameters::DIRECTION_INDICATOR_PARAMETERS::COLOR, Parameters::DIRECTION_INDICATOR_PARAMETERS::THICKNESS, Parameters::DIRECTION_INDICATOR_PARAMETERS::LINE_TYPE);
+                            cv::arrowedLine(dst, finalAngleLine[1], finalAngleLine[0], Parameters::DIRECTION_INDICATOR_PARAMETERS::COLOR, Parameters::DIRECTION_INDICATOR_PARAMETERS::THICKNESS, Parameters::DIRECTION_INDICATOR_PARAMETERS::LINE_TYPE);
+                        }*/
 
                         //cv::drawContours(dst, std::vector<std::vector<cv::Point>>({totalWinner}), 0, cv::Scalar(255, 127, 0), 0);
                     }
                 }
+            }
+
+            void estimateBloodSplatterAngle2(cv::Mat const &src, cv::Mat &dst) {
+                cv::Mat srcGrayImage;
+                cv::Mat srcGrayCannyImage;
+                std::vector<std::vector<cv::Point>> contours;
+
+                // create grayscale image of our source
+                cv::cvtColor(src, srcGrayImage, cv::COLOR_BGR2GRAY);
+
+                cv::dilate(srcGrayImage, srcGrayImage, cv::getStructuringElement(cv::MORPH_DILATE, cv::Size(3, 3)),
+                           cv::Point(-1, -1), 100);
+                // canny edge detection
+                cv::Canny(srcGrayImage, srcGrayCannyImage, 210, 210);
+                // find contours of the edges
+                cv::findContours(srcGrayCannyImage, contours, cv::RETR_EXTERNAL, cv::CHAIN_APPROX_SIMPLE);
+
+                std::vector<cv::Point> testBlurContour;
+                cv::blur(contours[0], testBlurContour, cv::Size(250, 250));
+                //cv::blur(contours[0], testBlurContour, cv::Size(1, 1));
+
+                cv::drawContours(dst, std::vector<std::vector<cv::Point>>({testBlurContour}), 0, cv::Scalar(255, 0, 0),
+                                 5);
+
+                cv::RotatedRect ellipse = cv::fitEllipse(testBlurContour);
+
+                cv::ellipse(dst, ellipse, cv::Scalar(0, 255, 0));
             }
         }
     }
